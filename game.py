@@ -33,6 +33,7 @@ class Game:
 		self.located_ship_position = Vector2()
 		self.tried_dirs = {"l": False, "r": False, "u": False, "d": False}
 		self.dir_values = {"l": Vector2(-1, 0), "r": Vector2(1, 0), "u": Vector2(0, -1), "d": Vector2(0, 1)}
+		self.current_direction = " "
 
 		self.player_board = Board()
 		self.cpu_board = Board()
@@ -99,6 +100,7 @@ class Game:
 		self.selector = Image("./images/selector.png", 80 * self.multiplier, 80 * self.multiplier)
 		self.click_sound = pygame.mixer.Sound("./sounds/click.wav")
 		self.arrows = Image("./images/exchange-arrows.png", 80 * self.multiplier, 80 * self.multiplier)
+		self.rotate_arrow = Image("./images/rotate.png", 64 * self.multiplier, 64 * self.multiplier)
 
 	def start(self):
 		pygame.init()
@@ -230,34 +232,151 @@ class Game:
 				txt = "view " + n + " board"
 				self.arrows.draw(self.screen, Vector2(1460 * self.multiplier, 56 * self.multiplier))
 				self.draw_text(txt, Vector2(1540 * self.multiplier, 64 * self.multiplier), (0,0,0), text_shadow=False)
+			else:
+				self.rotate_arrow.draw(self.screen, self.mouse_pos + Vector2(64 * self.multiplier, -32 * self.multiplier))
+				self.draw_text("R", position=self.mouse_pos+Vector2(64*self.multiplier, -32*self.multiplier), center=Vector2(64 * self.multiplier, 64 * self.multiplier))
 		elif self.current_menu == "menu":
 			self.logo.draw(self.screen, Vector2(self.screen_width * 0.5 - (self.multiplier * 800) * 0.5, 0))
 
 		if self.game_won:
 			pygame.draw.rect(self.screen, (0, 0, 0), (0, self.multiplier * 854, self.multiplier * 1920, self.multiplier * 216))
 			pygame.draw.rect(self.screen, (255, 255, 0), (0, self.multiplier * 864, self.multiplier * 1920, self.multiplier * 216))
-			self.draw_text(self.winner.title() + " won the game!", color=(255, 255, 255), position=Vector2(0, self.multiplier * 864), center=Vector2(self.multiplier * 1920, self.multiplier * 216))
+			self.draw_text(self.winner.title() + " won the game!  Press [ENTER] to play again", color=(255, 255, 255), position=Vector2(0, self.multiplier * 864), center=Vector2(self.multiplier * 1920, self.multiplier * 216))
 
-		pygame.draw.rect(self.screen, (0,0,0), (0, self.mouse_pos.y, 1920 * self.multiplier, 5))
-		pygame.draw.rect(self.screen, (0,0,0), (self.mouse_pos.x - 2, 0, 5, 1080 * self.multiplier))
+		#pygame.draw.rect(self.screen, (0,0,0), (0, self.mouse_pos.y, 1920 * self.multiplier, 5))
+		#pygame.draw.rect(self.screen, (0,0,0), (0, self.mouse_pos.y, 1920 * self.multiplier, 5))
+		sz = 64
+		hsz = sz * 0.5
+		pygame.draw.rect(self.screen, (0,0,0), (self.mouse_pos.x - hsz * self.multiplier, self.mouse_pos.y, self.multiplier * sz, self.multiplier * 4))
+		pygame.draw.rect(self.screen, (0,0,0), (self.mouse_pos.x, self.mouse_pos.y - hsz * self.multiplier, self.multiplier * 4, self.multiplier * sz))
 		self.draw_errors()
 
 		self.draw_text(f"FPS " + str(self.fps), Vector2(), color=(0, 210, 0), text_shadow=True, font=self.small_font)
 		#self.crosshair.draw(self.screen, Vector2(self.mouse_pos.x - self.multiplier * self.crosshair_size * 0.5, self.mouse_pos.y - self.multiplier * self.crosshair_size * 0.5))
 		pygame.display.flip()
 
+	def tried_all_directions(self):
+		return self.tried_dirs["l"] and self.tried_dirs["r"] and self.tried_dirs["u"] and self.tried_dirs["d"]
+
+	def reached_dead_end(self, og_position, direction):
+		if type(direction) == str:
+			direction = self.dir_values[direction]
+		while self.player_board.get_space(og_position).hit:
+			if not self.player_board.space_exists(og_position):
+				return True
+			if not self.player_board.get_space(og_position).has_ship:
+				return True
+			og_position += direction
+		return False
+
+	def get_spots_in_direction(self, og_position, direction):
+		if type(direction) == str:
+			direction = self.dir_values[direction]
+		total = 0
+		while not self.player_board.get_space(og_position).hit:
+			total += 1
+			og_position += direction
+			if not self.player_board.space_exists(og_position):
+				break
+		return total
+
+	def get_next_spot(self, og_position, direction):
+		if type(direction) == str:
+			direction = self.dir_values[direction]
+		while self.player_board.get_space(og_position).hit:
+			og_position += direction
+			if not self.player_board.space_exists(og_position):
+				break
+		return og_position
+
+	def restart(self):
+		self.setup_boards()
+		self.setting_ships = True
+		for s in self.ships_to_set:
+			s.placed = False
+		self.game_won = False
+		self.winner = "player"
+		self.viewing = "player"
+		self.located_ship = False
+		self.located_ship_position = Vector2()
+		self.tried_dirs = {"l": False, "r": False, "u": False, "d": False}
+		self.dir_values = {"l": Vector2(-1, 0), "r": Vector2(1, 0), "u": Vector2(0, -1), "d": Vector2(0, 1)}
+		self.current_direction = " "
+
+
 	def cpu_turn(self):
 		"""Manages the computer's AI"""
 		self.check_wins()
-		if self.game_won:
+		if self.game_won: 
 			return
 		while True:
 			x = randint(0, 9)
 			y = randint(0, 9)
+
+			if self.located_ship:
+				# These 3 lines mark the direction as completed if it reaches a dead end
+				if self.current_direction != " ":
+					if self.reached_dead_end(self.located_ship_position, self.current_direction):
+						self.tried_dirs[self.current_direction] = True
+				# These lines pick a random direction around the hit position if it hasn't already chosen one, or if the chosen one was a dead end
+				if self.current_direction == " " or self.tried_dirs[self.current_direction]:
+					if self.tried_all_directions():
+						self.located_ship = False
+					else:
+						ch = choice("lrud")
+						while self.tried_dirs[ch]:
+							ch = choice("lrud")
+						self.current_direction = ch
+
+				if self.located_ship:
+					new_pos = self.get_next_spot(self.located_ship_position, self.current_direction)
+					if not self.player_board.space_exists(new_pos):
+						self.tried_dirs[self.current_direction] = True
+						self.cpu_turn()
+						return
+					x = new_pos.x
+					y = new_pos.y
+			else:
+				# Try to find a position as far away from other hit positions as possible for larger coverage area
+				tries = []
+				values = 0
+				attempts = 10
+				best_index = 0
+				for i in range(attempts):
+					pos = Vector2(randint(0, 9), randint(0, 9))
+					while self.player_board.get_space(pos).hit:
+						pos = Vector2(randint(0, 9), randint(0, 9))
+					weights = []
+					for d in "lrud":
+						weights.append(self.get_spots_in_direction(pos, d))
+					weight = sum(weights) / len(weights)
+					tries.append({
+						"position": pos,
+						"weight": weight
+					})
+					if weight > tries[best_index]["weight"]:
+						best_index = len(tries) - 1
+				x = tries[best_index]["position"].x
+				y = tries[best_index]["position"].y
 			if not self.player_board.get_space(Vector2(x, y)).hit:
-				self.player_board.get_space(Vector2(x, y)).try_hit()
+				did_hit = self.player_board.get_space(Vector2(x, y)).try_hit()
+				if did_hit:
+					did_hit = self.player_board.get_space(Vector2(x, y)).has_ship
+					if did_hit:
+						if not self.located_ship:
+							self.located_ship = True
+							self.located_ship_position = Vector2(x, y)
+							self.reset_ai_values()
+							for l in "lrud":
+								v = self.located_ship_position + self.dir_values[l]
+								if v.x < 0 or v.y < 0 or v.x > 9 or v.y > 9:
+									self.tried_dirs[v] = True
 				break
 		self.check_wins()
+
+	def reset_ai_values(self):
+		self.tried_dirs = {"l": False, "r": False, "u": False, "d": False}
+		self.dir_values = {"l": Vector2(-1, 0), "r": Vector2(1, 0), "u": Vector2(0, -1), "d": Vector2(0, 1)}
 
 	def get_opposite_view(self):
 		"""Returns the opposite to the board you are currently viewing"""
@@ -463,6 +582,11 @@ class Game:
 						self.direction *= -1
 					else:
 						self.orientation = "h"
+				elif pygame.key.name(event.key) == "return":
+					self.restart()
+				elif pygame.key.name(event.key) == "p":
+					if self.setting_ships:
+						self.auto_place_ships(True)
 			elif event.type == pygame.MOUSEBUTTONDOWN:
 				self.mouse_down = True
 				self.unmanaged_click = True
@@ -512,8 +636,9 @@ class Game:
 			self.change_menu("game")
 			self.game_type = "singleplayer"
 		elif event_name == "multiplier":
-			self.change_menu("game")
-			self.game_type = "multiplier"
+			#self.change_menu("game")
+			#self.game_type = "multiplier"
+			self.display_error("How would you play this game multiplayer on one screen?")
 		else:
 			print("Unavailible event command:  '" + event_name + "', with the argument:  '" + str(arg) + "'")
 

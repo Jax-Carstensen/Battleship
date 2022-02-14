@@ -11,7 +11,15 @@ class Board:
 			for y in range(10):
 				self.map.append(Space(Vector2(x, y)))
 
+	def space_exists(self, position):
+		if position.x < 0 or position.x > 9 or position.y < 0 or position.y > 9:
+			return False
+		return True
+
 	def get_space(self, position):
+		if not self.space_exists(position):
+			print("Uh oh")
+			return self.map[0]
 		return self.map[position.y + position.x * 10]
 
 	def board_cleared(self):
